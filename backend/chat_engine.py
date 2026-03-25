@@ -6,6 +6,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import HumanMessage, AIMessage
+import json
+import random
 
 # 환경 변수 로드
 load_dotenv()
@@ -54,6 +56,54 @@ class AITutorEngine:
             "chat_history": chat_history, 
             "question": query
         })
+    
+    def generate_quiz(self) -> dict:
+        """지식 공간의 데이터를 기반으로 실제 객관식 문제 텐서를 생성하는 함수"""
+        
+        # 1. 벡터 데이터베이스에서 임의의 문서 텐서들을 인출 (다양한 문제 출제를 위해 무작위 검색어 사용)
+        random_keywords = ["데이터", "정규화", "조인", "트랜잭션", "인덱스", "설계", "구조"]
+        search_query = random.choice(random_keywords)
+        
+        # 유사도 검색을 통해 문제 출제용 원천 지식 텐서 확보
+        docs = self.vector_db.similarity_search(search_query, k=2)
+        context = "\n\n".join([doc.page_content for doc in docs])
+
+        # 2. 문제 출제를 위한 명령 텐서(프롬프트) 설계
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """너는 정보처리기사 자격증 시험을 출제하는 교수다. 
+주어진 [참고 지식]을 바탕으로 학생이 풀 수 있는 객관식 문제 1개를 출제해라.
+반드시 아래의 출력 형식을 엄격하게 지켜야 하며, 파이썬의 json.loads()로 즉시 파싱 가능한 순수한 JSON 형태만 출력해라. 코드 블록(```json) 같은 감싸기 표식을 쓰지 말고 중괄호로만 시작하고 끝내라.
+
+[출력 형식]
+{{
+    "question": "여기에 문제 질문을 작성",
+    "choices": ["1) 보기1", "2) 보기2", "3) 보기3", "4) 보기4"],
+    "answer": 3,
+    "explanation": "여기에 정답에 대한 상세한 해설을 작성 (예: 3번이 정답인 이유 등)"
+}}
+
+[참고 지식]
+{context}"""),
+            ("human", "위 지식을 바탕으로 자격증 시험에 나올법한 객관식 문제를 하나 출제해줘.")
+        ])
+
+        chain = prompt | self.llm | StrOutputParser()
+        raw_output = chain.invoke({"context": context})
+
+        # 3. 생성된 문자열 텐서를 파이썬 딕셔너리 구조체로 변환
+        try:
+            # 혹시 모델이 코드 블록을 붙여 출력할 경우를 대비한 방어 텐서 연산
+            clean_output = raw_output.replace("```json", "").replace("```", "").strip()
+            quiz_data = json.loads(clean_output)
+            return quiz_data
+        except Exception as e:
+            # 파싱 실패 시 예외 처리용 기본 텐서 반환
+            return {
+                "question": "정규화의 목적으로 가장 적절하지 않은 것은?",
+                "choices": ["1) 중복 제거", "2) 이상 현상 방지", "3) 무결성 유지", "4) 저장 공간의 낭비 증가"],
+                "answer": 4,
+                "explanation": "정규화는 데이터 중복을 제거하여 저장 공간을 효율적으로 사용하기 위함입니다."
+            }
 
 # --- 실행 테스트 블록 ---
 if __name__ == "__main__":
@@ -87,3 +137,4 @@ if __name__ == "__main__":
             
         except Exception as e:
             print(f"\n[오류] 텐서 연산 중 문제가 발생했습니다: {e}")
+
