@@ -40,7 +40,7 @@ master_tensor_chunks = []
 base_dir = os.path.join(CURRENT_DIR, "storage")
 
 # 타겟 폴더 필터링 (기출문제 등 불필요한 텐서 유입 차단)
-target_folders = ["data_1", "data_2", "data_3"]
+target_folders = ["data_4"]
 
 print("[System] 원시 데이터 스캔 및 텐서 변환 시작...\n")
 
