@@ -2,7 +2,7 @@
 .env
 
 # 2. 로컬 텐서 데이터베이스
-**/chroma_db/
+chroma_db/
 
 # 3. 파이썬 실행 부산물
 __pycache__/
