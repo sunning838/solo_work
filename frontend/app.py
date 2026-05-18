@@ -152,7 +152,7 @@ elif st.session_state.mode in ["quiz_random", "quiz_weakness"]:
                 # 🚀 [수정] 출제 엔진에 자격증 파라미터 전달
                 st.session_state.current_quiz = tutor_engine.generate_advanced_quiz(cert=selected_cert)
             else:
-                weak_topic = db_manager.get_weakest_topic()
+                weak_topic = db_manager.get_weakest_topic(selected_cert)
                 st.write(f"✍️ **출제위원**: 취약점 [{weak_topic}] 타겟 문제를 생성 중...")
                 # 🚀 [수정] 타겟팅된 단원과 함께 자격증도 전달
                 st.session_state.current_quiz = tutor_engine.generate_advanced_quiz(target_topic=weak_topic, cert=selected_cert)
