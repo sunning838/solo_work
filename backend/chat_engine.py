@@ -17,7 +17,7 @@ load_dotenv()
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_DIR = os.path.join(CURRENT_DIR, "chroma_db")
 
-# 🚀 [추가] 자격증별 하위 도메인(폴더명) 매핑 딕셔너리
+# 자격증별 하위 도메인(폴더명) 매핑 딕셔너리
 CERT_TOPICS = {
     "EIP": ["software_design", "software_development", "database", "programming_language", "info_system"],
     "LREA_1": ["civil_law", "housing_lease", "commercial_lease", "aggregate_building", "provisional_registration", "real_name_registration"]
@@ -45,12 +45,12 @@ class AITutorEngine:
         self.verify_parser = JsonOutputParser(pydantic_object=QuizVerification)
         print("[시스템] 튜터 엔진 가동 준비 완료!\n")
 
-    # 🚀 [수정] 자격증 꼬리표(cert)를 이용해 검색 격벽 형성!
+    
     def get_relevant_tensor(self, query: str, cert: str, k: int = 3) -> str:
         docs = self.vector_db.similarity_search(query, k=k, filter={"cert": cert})
         return "\n\n".join([doc.page_content for doc in docs])
 
-    # 🚀 [수정] cert 인자 추가
+    
     def generate_response(self, query: str, chat_history: list, student_status: str = "분석된 상태 없음", cert: str = "EIP") -> str:
         context = self.get_relevant_tensor(query, cert)
         prompt = ChatPromptTemplate.from_messages([
@@ -61,12 +61,12 @@ class AITutorEngine:
         chain = prompt | self.llm | StrOutputParser()
         return chain.invoke({"context": context, "chat_history": chat_history, "student_status": student_status, "question": query})
     
-    # 🚀 [수정] 개념 데이터베이스 출제 시 메타데이터 필터링 ($and) 사용
+    
     def generate_quiz(self, target_topic: str = None, cert: str = "EIP") -> dict:
         topics = CERT_TOPICS.get(cert, ["일반 개념"])
         selected_topic = target_topic if target_topic else random.choice(topics)
         
-        # 특정 자격증(cert)이면서, 개념 데이터(doc_type=concept)인 놈만 가져온다!
+        # 특정 자격증(cert)이면서, 개념 데이터(doc_type=concept)인 것만 추출
         search_filter = {
             "$and": [
                 {"doc_type": "concept"},
@@ -124,8 +124,38 @@ class AITutorEngine:
             "quiz": json.dumps(quiz_data, ensure_ascii=False),
             "format_instructions": self.verify_parser.get_format_instructions()
         })
+    
+    def revise_quiz(self, original_quiz: dict, feedback: str, context: str) -> dict:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """너는 전문 출제위원이다.
+네가 출제한 문제에 대해 검수위원이 오류를 발견하고 피드백을 주었다.
+아래의 [출제된 문제]와 [검수위원 피드백], 그리고 [참고 지식]을 바탕으로 문제를 **수정(보완)**해라.
+문제를 아예 새로 내는 것이 아니라, 피드백을 반영하여 기존 문제의 오류만 정확하게 바로잡아야 한다.
 
-    # 🚀 [수정] 기출문제 데이터베이스 기반 출제 시 메타데이터 필터링 ($and) 사용
+{format_instructions}"""),
+            ("human", """[참고 지식]
+{context}
+
+[출제된 문제 (수정 대상)]
+{original_quiz}
+
+[검수위원 피드백]
+{feedback}
+
+이 피드백을 반영하여 문제를 완벽하게 수정해줘.""")
+        ])
+        
+        chain = prompt | self.llm | self.quiz_parser
+        return chain.invoke({
+            "context": context,
+            "original_quiz": json.dumps(original_quiz, ensure_ascii=False),
+            "feedback": feedback,
+            "format_instructions": self.quiz_parser.get_format_instructions()
+        })
+    
+    
+
+    
     def generate_advanced_quiz(self, target_topic: str = None, cert: str = "EIP") -> dict:
         topics = CERT_TOPICS.get(cert, ["일반 개념"])
         selected_topic = target_topic if target_topic else random.choice(topics)
@@ -137,12 +167,13 @@ class AITutorEngine:
             ]
         }
         
-        quiz_docs = self.vector_db.similarity_search(query=selected_topic, k=2, filter=search_filter)
+        quiz_docs = self.vector_db.similarity_search(query=selected_topic, k=5, filter=search_filter)
         if not quiz_docs: 
             return self.generate_quiz(selected_topic, cert)
             
         context = "\n\n".join([doc.page_content for doc in quiz_docs])
 
+        # 최초 출제용 프롬프트 (feedback_history 제거)
         prompt = ChatPromptTemplate.from_messages([
             ("system", """너는 전문 출제위원이다. 
 아래의 [실제 기출 데이터]를 분석하여 신규 변형 객관식 문제를 1개 출제해라.
@@ -153,43 +184,44 @@ class AITutorEngine:
 4. 문제에 표(Table)나 릴레이션 데이터가 포함되어 있다면, 절대 누락하지 말고 반드시 JSON의 "table_data" 필드에 마크다운 표 형식으로 작성해라. (HTML 금지)
 5. **문제에 소스 코드(C, Java, Python 등)나 SQL 쿼리문이 포함된다면, 절대 누락하지 말고 반드시 JSON의 "code_block" 필드에 작성해라.**
 
-{format_instructions}
-
-[실제 기출 데이터]
-{context}
-
-[이전 검수위원의 반려 피드백 (있을 경우 반영할 것)]
-{feedback_history}"""),
-            ("human", f"위 기출 데이터를 바탕으로 '{selected_topic}' 단원의 실전 변형 문제를 만들어줘.")
+{format_instructions}"""),
+            ("human", "[실제 기출 데이터]\n{context}\n\n위 기출 데이터를 바탕으로 '{selected_topic}' 단원의 실전 변형 문제를 만들어줘.")
         ])
 
         chain = prompt | self.llm | self.quiz_parser
         
         max_retries = 3
-        feedback_history = "피드백 없음 (최초 출제)"
+        feedback_history = ""
+        quiz_data = None 
         
         for attempt in range(max_retries):
             print(f"\n[에이전트] {cert} 출제 시도 {attempt + 1}/{max_retries}...")
             try:
-                quiz_data = chain.invoke({
-                    "context": context,
-                    "format_instructions": self.quiz_parser.get_format_instructions(),
-                    "feedback_history": feedback_history
-                })
+                if attempt == 0:
+                    quiz_data = chain.invoke({
+                        "context": context,
+                        "selected_topic": selected_topic,
+                        "format_instructions": self.quiz_parser.get_format_instructions()
+                    })
+                else:
+                    # 검수위원의 피드백을 듣고 기존 문제를 수정함
+                    print("[에이전트] 피드백을 반영하여 기존 문제를 수정 중입니다...")
+                    quiz_data = self.revise_quiz(quiz_data, feedback_history, context)
+                
                 quiz_data["topic"] = selected_topic 
                 
-                print("[에이전트] 검수위원이 문제를 검토 중입니다...")
+                print("[에이전트] 문제를 검토 중입니다...")
                 verification = self.verify_quiz(quiz_data, context)
                 
                 if verification["is_valid"]:
-                    print("✅ [에이전트] 검수 통과! 완벽한 문제입니다.")
+                    print("✅ [에이전트] 검수 통과.")
                     return quiz_data 
                 else:
                     print(f"❌ [에이전트] 검수 반려! 사유: {verification['feedback']}")
                     feedback_history = verification['feedback'] 
                     
             except Exception as e:
-                print(f"[오류] 출제/검수 중 파싱 실패: {e}")
+                print(f"🚨 [오류] 출제/수정/검수 중 파싱 실패: {e}")
         
-        print("⚠️ [에이전트] 최대 재시도 횟수 초과. 강제 반환합니다.")
+        print("⚠️ [에이전트] 최대 재시도 횟수 초과. 수정된 결과물을 강제 반환합니다.")
         return quiz_data

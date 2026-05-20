@@ -21,7 +21,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# 🚀 [업그레이드] 기록할 때 자격증 정보(cert)도 같이 저장
+# 기록할 때 자격증 정보(도 같이 저장
 def log_quiz_result(cert, topic, is_correct):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -29,7 +29,7 @@ def log_quiz_result(cert, topic, is_correct):
     conn.commit()
     conn.close()
 
-# 🚀 [업그레이드] 취약점을 찾을 때 현재 자격증(cert) 방 안에서만 검색
+# 취약점을 찾을 때 현재 자격증 안에서만 검색
 def get_weakest_topic(cert):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
